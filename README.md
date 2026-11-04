@@ -6,9 +6,7 @@ arquivo de mídia. Cada análise recebe uma das três classes públicas
 e um resumo de até 280 caracteres.
 
 O fluxo é único: a regra global é um prompt editável, o conteúdo é processado em
-background e o resultado é consultado pelo identificador da análise. Não há
-login, cadastro, rulesets versionados, crawls de domínio nem análises com vários
-itens.
+background e o resultado é consultado pelo identificador da análise.
 
 A implementação segue Clean Architecture (`domain` → `application` → `adapters` →
 `infrastructure`), com FastAPI, PostgreSQL, Redis/Celery, S3/MinIO, Ollama e
@@ -84,10 +82,6 @@ O Compose usa `depends_on` com `service_healthy`/`service_completed_successfully
 então API e worker só sobem depois do banco, broker, bucket, modelo do Ollama e
 migrações. A API expõe `GET /health/live` e `GET /health/ready`; o healthcheck do
 container usa `/health/live`.
-
-> **Migração de versões anteriores:** o schema foi simplificado para
-> `001_simplified` e não é compatível com o schema antigo. Se você já tinha
-> volumes do projeto, rode `docker compose down -v` antes do primeiro `up`.
 
 O Docker Hub removeu as imagens oficiais `minio/minio` e `minio/mc`. O Compose
 usa o espelho `elestio/minio` fixado por digest, que empacota o binário oficial
