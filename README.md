@@ -18,7 +18,7 @@ OpenAI-compatible interpreta o prompt com semântica real.
 
 | Componente | Papel |
 | --- | --- |
-| FastAPI + Pydantic | API em `/v1`, validação e OpenAPI em `/docs` |
+| FastAPI + Pydantic | API em `/v1`, validação e Swagger UI em `/docs` |
 | PostgreSQL 16 + SQLAlchemy 2 async + Alembic | análises e regra global |
 | Redis 7 + Celery | fila `analysis` e retentativas |
 | MinIO/S3 | arquivos enviados |
@@ -53,6 +53,9 @@ cp .env.example .env   # recomendado; o Compose já possui defaults locais
 docker compose up --build -d
 docker compose ps      # aguarde api e worker "healthy"
 ```
+
+Com a API `healthy`, a documentação interativa está em
+**http://localhost:8000/docs** (Swagger UI).
 
 O primeiro `up` baixa as imagens, constrói a imagem da aplicação com Docling e
 baixa o modelo do Ollama. Os próximos usam cache e volumes persistentes; depois
@@ -186,7 +189,18 @@ modelo é consultado e o fluxo roda sem rede.
 
 ## API
 
-Todas as rotas de negócio ficam em `/v1` e são públicas.
+Todas as rotas de negócio ficam em `/v1` e são públicas. A documentação
+interativa é gerada automaticamente pelo FastAPI:
+
+| Interface | URL |
+| --- | --- |
+| Swagger UI | <http://localhost:8000/docs> |
+| ReDoc | <http://localhost:8000/redoc> |
+| OpenAPI JSON | <http://localhost:8000/openapi.json> |
+
+No Swagger UI é possível inspecionar os schemas, testar `POST /v1/analyses`
+(inclusive upload de arquivo) e executar `GET/PUT /v1/rule` direto do navegador.
+Se `API_PORT` foi alterado, use a porta configurada no lugar de `8000`.
 
 ### Criar uma análise
 

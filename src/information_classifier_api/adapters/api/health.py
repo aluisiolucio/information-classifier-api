@@ -4,7 +4,7 @@ from ...infrastructure.health import ReadinessChecker
 from .deps import ReadinessCheckerDep, SessionDep
 from .schemas.health import HealthResponse, ReadinessResponse
 
-router = APIRouter(tags=["health"])
+router = APIRouter(tags=["health"], include_in_schema=False)
 
 
 @router.get("/health", response_model=HealthResponse, include_in_schema=False)
