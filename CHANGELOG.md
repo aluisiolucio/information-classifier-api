@@ -7,6 +7,13 @@ e o projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
 ## [Não lançado]
 
+### Corrigido
+
+- Links servidos com `Content-Encoding: gzip` deixavam de ser analisados porque
+  o corpo já descomprimido era recriado com o header original, provocando
+  `DecodingError` no `httpx`. A resposta reconstruída agora remove os headers do
+  corpo comprimido, e falhas de decodificação viram `WebFetchError` (retry).
+
 ## [0.3.0] - 2026-11-04
 
 Primeira versão pública.

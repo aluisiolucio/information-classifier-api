@@ -1,3 +1,4 @@
+import gzip
 import socket
 
 import httpx
@@ -74,6 +75,38 @@ async def test_fetch_returns_selected_html_and_metadata() -> None:
     assert page.title == "Notícia"
     assert "Texto principal" in page.html
     assert page.metadata["description"] == "Resumo da notícia"
+
+
+async def test_fetch_decodes_gzip_response_once() -> None:
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            headers={
+                "content-type": "text/html; charset=utf-8",
+                "content-encoding": "gzip",
+            },
+            content=gzip.compress(_HTML.encode()),
+        )
+
+    page = await _fetcher(handler).fetch("https://example.com/noticia")
+    assert page.status_code == 200
+    assert page.title == "Notícia"
+    assert "Texto principal" in page.html
+
+
+async def test_fetch_wraps_invalid_gzip_as_web_fetch_error() -> None:
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            headers={
+                "content-type": "text/html",
+                "content-encoding": "gzip",
+            },
+            content=b"isto nao e gzip",
+        )
+
+    with pytest.raises(WebFetchError, match="DecodingError"):
+        await _fetcher(handler).fetch("https://example.com/quebrado")
 
 
 async def test_fetch_follows_redirect_after_validation() -> None:

@@ -11,6 +11,9 @@ from .main_content import extract_page_metadata, select_main_html
 log = structlog.get_logger()
 
 _REDIRECT_STATUSES = {301, 302, 303, 307, 308}
+_DECODED_BODY_HEADERS = frozenset(
+    {"content-encoding", "content-length", "transfer-encoding"}
+)
 
 
 class HttpPageFetcher(WebPageFetcher):
@@ -61,11 +64,15 @@ class HttpPageFetcher(WebPageFetcher):
                     )
                     return httpx.Response(
                         status_code=response.status_code,
-                        headers=response.headers,
+                        headers=_decoded_body_headers(response.headers),
                         content=content,
                         request=response.request,
                     )
-        except (httpx.TimeoutException, httpx.TransportError) as exc:
+        except (
+            httpx.TimeoutException,
+            httpx.TransportError,
+            httpx.DecodingError,
+        ) as exc:
             raise WebFetchError(
                 f"falha ao buscar {url!r}: {type(exc).__name__}"
             ) from exc
@@ -110,6 +117,20 @@ class HttpPageFetcher(WebPageFetcher):
             metadata=metadata,
             warnings=warnings,
         )
+
+
+def _decoded_body_headers(headers: httpx.Headers) -> dict[str, str]:
+    """Remove cabeçalhos do corpo comprimido antes de recriar a resposta.
+
+    ``_read_limited`` usa ``aiter_bytes()``, que já descomprime o corpo. Manter
+    ``Content-Encoding`` faria o novo ``httpx.Response`` descomprimir de novo e
+    falhar com ``DecodingError``. Exemplo: uma página servida com gzip.
+    """
+    return {
+        name: value
+        for name, value in headers.items()
+        if name.lower() not in _DECODED_BODY_HEADERS
+    }
 
 
 async def _read_limited(response: httpx.Response, limit: int, url: str) -> bytes:
