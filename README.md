@@ -231,9 +231,9 @@ Resposta `202`:
 }
 ```
 
-Se nenhuma ou mais de uma origem for enviada, a API responde `400`. Arquivo com
-extensão/MIME/assinatura inválida responde `415`; payload acima de
-`MAX_UPLOAD_BYTES` responde `413`.
+Se nenhuma ou mais de uma origem for enviada, a API responde `400`. Extensão ou
+MIME incompatível responde `415`; arquivo vazio ou assinatura inválida responde
+`400`; payload acima de `MAX_UPLOAD_BYTES` responde `413`.
 
 ### Consultar o resultado
 
@@ -354,6 +354,7 @@ As mudanças notáveis estão em [CHANGELOG.md](CHANGELOG.md).
 - [ADR 0003 — Docling, texto direto e links](docs/adr/0003-docling-texto-e-links.md)
 - [ADR 0004 — Regra global e provedor](docs/adr/0004-regra-global-e-provedor.md)
 - [ADR 0005 — PostgreSQL, S3/MinIO e SSRF](docs/adr/0005-postgres-s3-minio-e-ssrf.md)
+- [ADR 0006 — Fluxo ponta a ponta da análise assíncrona](docs/adr/0006-fluxo-ponta-a-ponta-da-analise.md)
 
 ## Limitações conhecidas
 
