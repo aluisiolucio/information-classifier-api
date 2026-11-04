@@ -1,0 +1,120 @@
+[project]
+name = "information_classifier_api"
+version = "0.3.0"
+description = "Classificação assíncrona de relevância de textos, links e mídias com FastAPI, Docling e LLM."
+readme = "README.md"
+license = "MIT"
+authors = [
+    { name = "Aluisio Lucio", email = "aluisio18lucio@gmail.com" },
+]
+requires-python = ">=3.13"
+dependencies = [
+    "fastapi>=0.141.1",
+    "uvicorn[standard]>=0.52.4",
+    "pydantic-settings>=2.15.0",
+    "pydantic>=2.13.5",
+    "sqlalchemy[asyncio]>=2.0.52",
+    "alembic>=1.20.0",
+    "psycopg[binary]>=3.3.5",
+    "structlog>=26.1.0",
+    "python-multipart>=0.0.32",
+    "celery[redis]>=5.6.3",
+    "redis>=5.0.1,<6.5",
+    "boto3>=1.43.118",
+    "httpx>=0.28.1",
+    "parsel>=1.10.0",
+]
+
+[project.optional-dependencies]
+# Extra pesado (PyTorch/modelos). Instalado na imagem Docker; o ambiente de
+# testes unitários roda com conversores fake.
+docling = [
+    "docling[asr]>=2.142.1,<3",
+]
+
+[dependency-groups]
+dev = [
+    "ruff>=0.16.7",
+    "ty~=0.0.80",
+    "pytest>=9.1.1",
+    "pytest-cov>=7.1.0",
+    "poethepoet>=0.48.0",
+    "testcontainers[postgres]>=4.15.0",
+    "pytest-asyncio>=1.4.0",
+]
+
+[build-system]
+requires = ["uv_build>=0.11.19,<0.12.0"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "information_classifier_api"
+module-root = "src"
+
+[tool.ruff]
+target-version = "py313"
+src = ["src", "tests"]
+line-length = 88
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "--cov=information_classifier_api --cov-report=term-missing --cov-fail-under=75"
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "session"
+markers = [
+    "docling: requer o extra opcional docling instalado",
+]
+
+[tool.coverage.run]
+source = ["src"]
+branch = true
+omit = [
+    "src/information_classifier_api/infrastructure/database/migrations/*",
+    "src/information_classifier_api/infrastructure/llm/openai_provider.py",
+    "src/information_classifier_api/infrastructure/normalization/docling/converter.py",
+    "src/information_classifier_api/infrastructure/queue/celery_app.py",
+    "src/information_classifier_api/infrastructure/queue/tasks.py",
+    "src/information_classifier_api/infrastructure/storage/s3_storage.py",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "if __name__ == .__main__.:",
+]
+
+[tool.poe.tasks.install]
+cmd = "uv sync"
+
+[tool.poe.tasks.lint]
+shell = "ruff check src tests && ruff format --check src tests"
+
+[tool.poe.tasks.format]
+shell = "ruff format src tests && ruff check --fix src tests"
+
+[tool.poe.tasks.typecheck]
+cmd = "ty check"
+
+[tool.poe.tasks.test]
+cmd = "pytest"
+
+[tool.poe.tasks.test-unit]
+cmd = "pytest tests/unit --no-cov"
+
+[tool.poe.tasks.test-integration]
+cmd = "pytest tests/integration --no-cov"
+
+[tool.poe.tasks.run]
+cmd = "uvicorn information_classifier_api.main:app --reload"
+
+[tool.poe.tasks.migrate]
+cmd = "alembic upgrade head"
+
+[tool.poe.tasks.revision]
+cmd = "alembic revision --autogenerate"
+
+[tool.poe.tasks.worker]
+cmd = "celery -A information_classifier_api.infrastructure.queue.celery_app:celery_app worker -Q analysis --concurrency=1 -l INFO"

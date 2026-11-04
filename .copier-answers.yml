@@ -1,0 +1,11 @@
+# Changes here will be overwritten by Copier; NEVER EDIT MANUALLY.
+_commit: aee2ce6
+_src_path: gh:aluisiolucio/fastapi-clean-boilerplate
+async_mode: async
+author_email: aluisio18lucio@gmail.com
+author_name: Aluisio Lucio
+include_crud: false
+include_docker: true
+license: MIT
+project_name: information-classifier-api
+project_slug: information_classifier_api

@@ -1,0 +1,247 @@
+name: information-classifier-api
+
+x-app-environment: &app-environment
+  ENVIRONMENT: ${ENVIRONMENT:-dev}
+  DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-app}:${POSTGRES_PASSWORD:-change-me-local-only}@postgres:5432/${POSTGRES_DB:-information_classifier_api}
+  REDIS_URL: redis://redis:6379/0
+  STORAGE_BACKEND: s3
+  S3_ENDPOINT_URL: http://minio:9000
+  S3_BUCKET: ${S3_BUCKET:-information-classifier-api}
+  S3_ACCESS_KEY: ${MINIO_ROOT_USER:-change-me-local-only}
+  S3_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-change-this-local-secret}
+  S3_REGION: ${S3_REGION:-us-east-1}
+  # "openai" aqui significa API compatível com OpenAI; o serviço ollama
+  # implementa esse contrato e ignora LLM_API_KEY.
+  LLM_PROVIDER: ${LLM_PROVIDER:-openai}
+  LLM_API_KEY: ${LLM_API_KEY:-ollama}
+  LLM_MODEL: ${LLM_MODEL:-llama3.2:1b}
+  LLM_BASE_URL: ${LLM_BASE_URL:-http://ollama:11434/v1}
+  LLM_TIMEOUT_SECONDS: ${LLM_TIMEOUT_SECONDS:-300}
+  LLM_MAX_RETRIES: ${LLM_MAX_RETRIES:-1}
+  PROMPT_MAX_CHARS: ${PROMPT_MAX_CHARS:-24000}
+  MAX_UPLOAD_BYTES: ${MAX_UPLOAD_BYTES:-52428800}
+  MAX_TEXT_CHARS: ${MAX_TEXT_CHARS:-500000}
+  MAX_EXTRACTED_CHARS: ${MAX_EXTRACTED_CHARS:-500000}
+  MAX_RULE_PROMPT_CHARS: ${MAX_RULE_PROMPT_CHARS:-20000}
+  WEB_FETCH_TIMEOUT_SECONDS: ${WEB_FETCH_TIMEOUT_SECONDS:-30}
+  WEB_FETCH_MAX_RESPONSE_BYTES: ${WEB_FETCH_MAX_RESPONSE_BYTES:-5242880}
+  WEB_FETCH_USER_AGENT: ${WEB_FETCH_USER_AGENT:-InformationClassifierBot/1.0}
+  WEB_FETCH_MAX_REDIRECTS: ${WEB_FETCH_MAX_REDIRECTS:-5}
+  ALLOWED_URL_PORTS: "${ALLOWED_URL_PORTS:-[80,443]}"
+  ASR_MODEL: ${ASR_MODEL:-small}
+  ASR_LANGUAGE: ${ASR_LANGUAGE:-}
+  CELERY_TASK_MAX_RETRIES: ${CELERY_TASK_MAX_RETRIES:-3}
+  CELERY_RETRY_BACKOFF_SECONDS: ${CELERY_RETRY_BACKOFF_SECONDS:-5}
+  ANALYSIS_SOFT_TIME_LIMIT_SECONDS: ${ANALYSIS_SOFT_TIME_LIMIT_SECONDS:-900}
+  LOG_LEVEL: ${LOG_LEVEL:-INFO}
+
+x-app: &app
+  build:
+    context: .
+    dockerfile: Dockerfile
+  image: information-classifier-api:local
+  environment: *app-environment
+  restart: unless-stopped
+  init: true
+  stop_grace_period: 60s
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-information_classifier_api}
+      POSTGRES_USER: ${POSTGRES_USER:-app}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me-local-only}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 5s
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  ollama:
+    # LLM local exposto pela API OpenAI-compatible. Sem GPU, roda em CPU; o
+    # modelo pequeno padrão mantém o consumo de RAM sob controle.
+    image: ollama/ollama:0.30.7
+    environment:
+      OLLAMA_CONTEXT_LENGTH: ${OLLAMA_CONTEXT_LENGTH:-16384}
+      OLLAMA_MAX_LOADED_MODELS: ${OLLAMA_MAX_LOADED_MODELS:-1}
+      OLLAMA_NUM_PARALLEL: ${OLLAMA_NUM_PARALLEL:-1}
+      OLLAMA_KEEP_ALIVE: ${OLLAMA_KEEP_ALIVE:-5m}
+    # 11435 no host evita conflito com um Ollama já instalado em 11434.
+    ports:
+      - "${OLLAMA_HOST_PORT:-11435}:11434"
+    volumes:
+      - ollama_models:/root/.ollama
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+    restart: unless-stopped
+
+  ollama-init:
+    # Pull idempotente do modelo. Roda uma vez, antes da API e do worker.
+    image: ollama/ollama:0.30.7
+    depends_on:
+      ollama:
+        condition: service_healthy
+    environment:
+      OLLAMA_HOST: ollama:11434
+      LLM_MODEL: ${LLM_MODEL:-llama3.2:1b}
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        if ollama list | awk '{print $$1}' | grep -qx "$$LLM_MODEL"; then
+          echo "modelo $$LLM_MODEL já disponível"; exit 0;
+        fi
+        ollama pull "$$LLM_MODEL"
+    restart: "no"
+
+  minio:
+    # O repositório oficial minio/minio saiu do Docker Hub. Este espelho publica
+    # o binário oficial; o digest fixa a versão para builds reproduzíveis.
+    image: elestio/minio@sha256:25348a257f1ece1b192f25f6cd9854618fa86422ac87b494b5d4e629c556d4bd
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-change-me-local-only}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-change-this-local-secret}
+    ports:
+      - "${MINIO_API_PORT:-9000}:9000"
+      - "${MINIO_CONSOLE_PORT:-9001}:9001"
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 5s
+    restart: unless-stopped
+
+  bucket-init:
+    image: elestio/minio@sha256:25348a257f1ece1b192f25f6cd9854618fa86422ac87b494b5d4e629c556d4bd
+    depends_on:
+      minio:
+        condition: service_healthy
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-change-me-local-only}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-change-this-local-secret}
+      S3_BUCKET: ${S3_BUCKET:-information-classifier-api}
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        until mc alias set local http://minio:9000 "$$MINIO_ROOT_USER" "$$MINIO_ROOT_PASSWORD"; do
+          echo "aguardando MinIO"; sleep 1;
+        done
+        mc mb --ignore-existing "local/$$S3_BUCKET"
+        mc anonymous set none "local/$$S3_BUCKET"
+    restart: "no"
+
+  migrate:
+    <<: *app
+    command: ["alembic", "upgrade", "head"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  api:
+    <<: *app
+    command:
+      - uvicorn
+      - information_classifier_api.main:app
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --proxy-headers
+      - --forwarded-allow-ips
+      - "*"
+    ports:
+      - "${API_PORT:-8000}:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      ollama:
+        condition: service_healthy
+      ollama-init:
+        condition: service_completed_successfully
+      migrate:
+        condition: service_completed_successfully
+      bucket-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+
+  worker:
+    <<: *app
+    command:
+      - celery
+      - -A
+      - information_classifier_api.infrastructure.queue.celery_app:celery_app
+      - worker
+      - -Q
+      - analysis
+      - --concurrency=1
+      - -l
+      - INFO
+    volumes:
+      # Modelos de OCR/ASR baixados em runtime sobrevivem à recriação do worker.
+      - model_cache:/home/appuser/.cache
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      ollama:
+        condition: service_healthy
+      ollama-init:
+        condition: service_completed_successfully
+      migrate:
+        condition: service_completed_successfully
+      bucket-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - celery -A information_classifier_api.infrastructure.queue.celery_app:celery_app inspect ping -d celery@$$HOSTNAME || exit 1
+      interval: 30s
+      timeout: 15s
+      retries: 5
+      start_period: 30s
+
+volumes:
+  postgres_data:
+  redis_data:
+  minio_data:
+  ollama_models:
+  model_cache:
